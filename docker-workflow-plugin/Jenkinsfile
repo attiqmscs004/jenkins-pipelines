@@ -1,0 +1,162 @@
+#!/usr/bin/env groovy
+
+def pomVersion(path) {
+  def pom = readMavenPom file: path
+  return pom.getVersion()
+}
+
+def version() {
+  return pomVersion('pom.xml')
+}
+
+def pomPackaging(path) {
+  def pom = readMavenPom file: path
+  return pom.getPackaging();
+}
+
+node() {
+  stage('Preparation') {
+    deleteDir()
+    // Get the Maven tool.
+    // ** NOTE: This 'Maven 3.x' Maven tool must be configured
+    // **       in the global configuration.
+    writeFile encoding: 'UTF-8', file: 'settings.xml', text: '''<?xml version="1.0" encoding="UTF-8"?>
+<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0 http://maven.apache.org/xsd/settings-1.0.0.xsd">
+  <mirrors>
+    <mirror>
+      <!--This sends everything else to /public -->
+      <id>nexus</id>
+      <mirrorOf>*</mirrorOf>
+      <url>${local.nexus.mirror}</url>
+    </mirror>
+  </mirrors>
+  <servers>
+    <server>
+      <id>releases</id>
+      <username>${local.nexus.releases.username}</username>
+      <password>${local.nexus.releases.password}</password>
+    </server>
+    <server>
+      <id>snapshots</id>
+      <username>${local.nexus.snapshots.username}</username>
+      <password>${local.nexus.snapshots.password}</password>
+    </server>
+  </servers>
+  <profiles>
+    <profile>
+      <id>nexus</id>
+      <repositories>
+        <repository>
+          <id>central</id>
+          <url>http://central</url>
+          <releases>
+            <enabled>true</enabled>
+          </releases>
+          <snapshots>
+            <enabled>true</enabled>
+          </snapshots>
+        </repository>
+      </repositories>
+      <pluginRepositories>
+        <pluginRepository>
+          <id>central</id>
+          <url>http://central</url>
+          <releases>
+            <enabled>true</enabled>
+          </releases>
+          <snapshots>
+            <enabled>true</enabled>
+          </snapshots>
+        </pluginRepository>
+      </pluginRepositories>
+    </profile>
+    <profile>
+      <id>distributionManagementUrl</id>
+      <properties>
+        <distributionManagement-release-url>${local.nexus.releases.url}</distributionManagement-release-url>
+        <distributionManagement-snapshot-url>${local.nexus.snapshots.url}</distributionManagement-snapshot-url>
+      </properties>
+    </profile>
+    <profile>
+      <id>sonar</id>
+      <activation>
+        <activeByDefault>true</activeByDefault>
+      </activation>
+      <properties>
+        <sonar.host.url>${local.sonar.url}</sonar.host.url>
+      </properties>
+    </profile>
+</profiles>
+  <activeProfiles>
+    <activeProfile>nexus</activeProfile>
+    <activeProfile>distributionManagementUrl</activeProfile>
+    <activeProfile>sonar</activeProfile>
+  </activeProfiles>
+</settings>
+'''
+
+    stash includes: 'settings.xml', name: 'settings.xml'
+  }
+}
+
+node() {
+  ws {
+    deleteDir()
+    stage('Checkout') {
+      git branch: 'master', url: 'https://github.com/jenkinsci/docker-workflow-plugin.git'
+    }
+    stage('Build') {
+      unstash 'settings.xml'
+      def mvnHome = tool 'Maven 3.x'
+      echo 'Building version ' + version()
+      sh "'${mvnHome}/bin/mvn' --batch-mode --update-snapshots -Dmaven.test.failure.ignore -DskipTests=true clean package"
+      step([$class: 'Fingerprinter', targets: '**/target/*.jar,**/target/*.war'])
+      stash includes: '**/target/*.jar,**/target/*.war,**/target/*.hpi', name: 'artifacts'
+      stash includes: '**/pom.xml', name: 'pom.xml'
+    }
+    //stage('Results') {
+    // junit '**/target/surefire-reports/TEST-*.xml'
+    // archive '**/target/*.jar,**/target/*.war,**/target/*.hpi'
+    //}
+  }
+
+  node() {
+    stage('Publish') {
+      milestone label: 'milestone-deploy', ordinal: 3
+      println("releases url: " + env.NEXUS_RELEASES_URL)
+      println("snapshot url: " + env.NEXUS_SNAPSHOT_URL)
+      ws {
+        deleteDir()
+        unstash 'pom.xml'
+        unstash 'settings.xml'
+        unstash 'artifacts'
+        // https://www.cloudbees.com/blog/workflow-integration-credentials-binding-plugin
+        // https://wiki.jenkins-ci.org/display/JENKINS/Credentials+Binding+Plugin
+        withCredentials([
+          [$class: 'UsernamePasswordMultiBinding', credentialsId: 'nexus', usernameVariable: 'USERNAME', passwordVariable: 'PASSWORD']
+        ]) {
+          def mvnHome = tool 'Maven 3.x'
+          def deployFormatTask = pomPackaging('pom.xml') + ":" + pomPackaging('pom.xml')
+          def deployCommand = "${mvnHome}/bin/mvn validate ${deployFormatTask} deploy:deploy --batch-mode -V -s settings.xml " +
+            " -DskipTests=true -Dmaven.javadoc.skip=true" +
+            " -Dlocal.nexus.snapshots.password=\"" + env.PASSWORD + "\"" +
+            " -Dlocal.nexus.snapshots.username=\"" + env.USERNAME + "\"" +
+            " -Dlocal.nexus.releases.password=\"" + env.PASSWORD + "\"" +
+            " -Dlocal.nexus.releases.username=\"" + env.USERNAME + "\"" +
+            " -Dlocal.nexus.releases.url=\"" + env.NEXUS_RELEASES_URL + "\"" +
+            " -Dlocal.nexus.snapshots.url=\"" + env.NEXUS_SNAPSHOT_URL + "\"" +
+            " -Dlocal.nexus.mirror=\"" + env.NEXUS_MIRROR + "\"" +
+            " -Darguments=-DaltReleaseDeploymentRepository=\"releases::default::" + env.NEXUS_RELEASES_URL + "\"" +
+            " -DaltSnapshotDeploymentRepository=\"snapshots::default::" + env.NEXUS_SNAPSHOT_URL + "\""
+          sh "${deployCommand} > /tmp/jenkins-deploy.txt"
+          sh "eval ${deployCommand}"
+        }
+        //step([$class: 'ArtifactArchiver', artifacts: '**/target/*.war', fingerprint: true])
+        step([$class: 'Fingerprinter', targets: '**/target/*.jar,**/target/*.war'])
+        stash includes: '**/target/*.jar,**/target/*.war,**/target/*.hpi', name: 'artifacts'
+      }
+    }
+  }
+}
