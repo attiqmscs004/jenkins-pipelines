@@ -138,8 +138,12 @@ node() {
           [$class: 'UsernamePasswordMultiBinding', credentialsId: 'nexus', usernameVariable: 'USERNAME', passwordVariable: 'PASSWORD']
         ]) {
           def mvnHome = tool 'Maven 3.x'
-          def deployFormatTask = pomPackaging('pom.xml') + ":" + pomPackaging('pom.xml')
-          def deployCommand = "${mvnHome}/bin/mvn validate ${deployFormatTask} deploy:deploy --batch-mode -V -s settings.xml " +
+          def packaging = pomPackaging('pom.xml')
+          def deployFormatTask = ""
+          if (packaging != 'pom') {
+            deployFormatTask = pomPackaging('pom.xml') + ":" + pomPackaging('pom.xml')
+          }
+          def deployCommand = "${mvnHome}/bin/mvn ${deployFormatTask} deploy:deploy --batch-mode -V -s settings.xml " +
             " -DskipTests=true -Dmaven.javadoc.skip=true" +
             " -Dlocal.nexus.snapshots.password=\"" + env.PASSWORD + "\"" +
             " -Dlocal.nexus.snapshots.username=\"" + env.USERNAME + "\"" +
@@ -150,7 +154,6 @@ node() {
             " -Dlocal.nexus.mirror=\"" + env.NEXUS_MIRROR + "\"" +
             " -Darguments=-DaltReleaseDeploymentRepository=\"releases::default::" + env.NEXUS_RELEASES_URL + "\"" +
             " -DaltSnapshotDeploymentRepository=\"snapshots::default::" + env.NEXUS_SNAPSHOT_URL + "\""
-          sh "${deployCommand} > /tmp/jenkins-deploy.txt"
           sh "eval ${deployCommand}"
         }
         //step([$class: 'ArtifactArchiver', artifacts: '**/target/*.war', fingerprint: true])
