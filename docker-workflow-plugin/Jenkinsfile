@@ -141,7 +141,7 @@ node() {
           def packaging = pomPackaging('pom.xml')
           def deployFormatTask = ""
           if (packaging != 'pom') {
-            deployFormatTask = pomPackaging('pom.xml') + ":" + pomPackaging('pom.xml')
+            deployFormatTask = packaging + ":" + packaging
           }
           def deployCommand = "${mvnHome}/bin/mvn ${deployFormatTask} deploy:deploy --batch-mode -V -s settings.xml " +
             " -DskipTests=true -Dmaven.javadoc.skip=true" +
