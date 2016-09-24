@@ -140,6 +140,8 @@ node() {
           def mvnHome = tool 'Maven 3.x'
           def packaging = pomPackaging('pom.xml')
           def deployFormatTask = ""
+	  // mvn require classes folder for some reason
+	  sh 'mkdir target/classes'
           if (packaging != 'pom') {
             deployFormatTask = packaging + ":" + packaging
           }
