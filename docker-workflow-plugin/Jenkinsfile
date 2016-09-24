@@ -13,8 +13,15 @@ def pomPackaging(path) {
   def pom = readMavenPom file: path
   return pom.getPackaging();
 }
+def nodeCheck() {
+  if (!isUnix()) {
+    error 'only linux nodes are supported'
+  }
+}
+
 
 node() {
+  nodeCheck()
   stage('Preparation') {
     sh 'pwd'
     deleteDir()
@@ -100,6 +107,7 @@ node() {
 }
 
 node() {
+  nodeCheck()
   ws {
     sh 'pwd'
     deleteDir()
@@ -123,6 +131,7 @@ node() {
   }
 
   node() {
+    nodeCheck()
     stage('Publish') {
       sh 'pwd'
       milestone label: 'milestone-deploy', ordinal: 3
