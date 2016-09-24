@@ -16,10 +16,8 @@ def pomPackaging(path) {
 
 node() {
   stage('Preparation') {
+    sh 'pwd'
     deleteDir()
-    // Get the Maven tool.
-    // ** NOTE: This 'Maven 3.x' Maven tool must be configured
-    // **       in the global configuration.
     writeFile encoding: 'UTF-8', file: 'settings.xml', text: '''<?xml version="1.0" encoding="UTF-8"?>
 <settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"
           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
@@ -103,6 +101,7 @@ node() {
 
 node() {
   ws {
+    sh 'pwd'
     deleteDir()
     stage('Checkout') {
       git branch: 'master', url: 'https://github.com/jenkinsci/docker-workflow-plugin.git'
@@ -112,8 +111,9 @@ node() {
       def mvnHome = tool 'Maven 3.x'
       echo 'Building version ' + version()
       sh "'${mvnHome}/bin/mvn' --batch-mode --update-snapshots -Dmaven.test.failure.ignore -DskipTests=true clean package"
-      step([$class: 'Fingerprinter', targets: '**/target/*.jar,**/target/*.war'])
-      stash includes: '**/target/*.jar,**/target/*.war,**/target/*.hpi', name: 'artifacts'
+      //step([$class: 'ArtifactArchiver', artifacts: '**/target/*.jar,**/target/*.war,**/target/*.hpi,**/target/*.ear', fingerprint: true])
+      step([$class: 'Fingerprinter', targets: '**/target/*.jar,**/target/*.war,**/target/*.hpi,**/target/*.ear'])
+      stash includes: '**/target/*.jar,**/target/*.war,**/target/*.hpi,**/target/*.ear', name: 'artifacts'
       stash includes: '**/pom.xml', name: 'pom.xml'
     }
     //stage('Results') {
@@ -124,9 +124,11 @@ node() {
 
   node() {
     stage('Publish') {
+      sh 'pwd'
       milestone label: 'milestone-deploy', ordinal: 3
       println("releases url: " + env.NEXUS_RELEASES_URL)
       println("snapshot url: " + env.NEXUS_SNAPSHOT_URL)
+      sh 'pwd'
       ws {
         deleteDir()
         unstash 'pom.xml'
@@ -158,9 +160,9 @@ node() {
             " -DaltSnapshotDeploymentRepository=\"snapshots::default::" + env.NEXUS_SNAPSHOT_URL + "\""
           sh "eval ${deployCommand}"
         }
-        //step([$class: 'ArtifactArchiver', artifacts: '**/target/*.war', fingerprint: true])
-        step([$class: 'Fingerprinter', targets: '**/target/*.jar,**/target/*.war'])
-        stash includes: '**/target/*.jar,**/target/*.war,**/target/*.hpi', name: 'artifacts'
+        //step([$class: 'ArtifactArchiver', artifacts: '**/target/*.jar,**/target/*.war,**/target/*.hpi,**/target/*.ear', fingerprint: true])
+        step([$class: 'Fingerprinter', targets: '**/target/*.jar,**/target/*.war,**/target/*.hpi,**/target/*.ear'])
+        stash includes: '**/target/*.jar,**/target/*.war,**/target/*.hpi,**/target/*.ear', name: 'artifacts'
       }
     }
   }
